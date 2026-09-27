@@ -43,6 +43,13 @@ interface IFluidLiquidityWithdrawalLimit {
 ///         Action 4 reduces the Team Multisig's wstETH and cbBTC borrow limits
 ///         at the Liquidity Layer (IGP-107 DEX Lite credit) to dust, the same
 ///         treatment USDC and USDT received in IGP-132.
+///
+///         Action 5 fully restricts the Liquidity Layer supply and borrow
+///         limits of the two remaining IGP-45 test DEXes (old DexFactory):
+///         dex id1 wstETH/ETH 0x25F0...F901 and dex id3 WBTC/cbBTC
+///         0x1d3e...204d, same pattern as Action 1. Residual supply is
+///         ~$124 (id1, one vault 34 position + locked init shares) and
+///         ~$343 (id3, locked init shares only); it stays locked.
 contract PayloadIGP141 is PayloadIGPPriceHelpers {
     uint256 public constant PROPOSAL_ID = 141;
 
@@ -62,6 +69,14 @@ contract PayloadIGP141 is PayloadIGPPriceHelpers {
     // --- Action 3 ---
     uint256 public constant VAULT_WEETH_ETH_ID = 182; // T1: weETH / ETH
 
+    // --- Action 5 ---
+    /// @dev IGP-45 test DEXes, deployed from the old DexFactory, so they
+    ///      cannot be resolved via getDexAddress().
+    address public constant OLD_DEX_ID1_WSTETH_ETH =
+        0x25F0A3B25cBC0Ca0417770f686209628323fF901;
+    address public constant OLD_DEX_ID3_WBTC_CBBTC =
+        0x1d3e52a11B98Ed2AAB7eB0Bfe1cbB6525233204d;
+
     function execute() public virtual override {
         super.execute();
 
@@ -76,6 +91,9 @@ contract PayloadIGP141 is PayloadIGPPriceHelpers {
 
         // Action 4: Reduce Team Multisig wstETH & cbBTC borrow limits to dust.
         action4();
+
+        // Action 5: Fully restrict IGP-45 test dex id1 and dex id3 at the Liquidity Layer.
+        action5();
     }
 
     function verifyProposal() public view override {}
@@ -197,6 +215,47 @@ contract PayloadIGP141 is PayloadIGPPriceHelpers {
     function action4() internal isActionSkippable(4) {
         setBorrowProtocolLimitsPaused(TEAM_MULTISIG, wstETH_ADDRESS);
         setBorrowProtocolLimitsPaused(TEAM_MULTISIG, cbBTC_ADDRESS);
+    }
+
+    /// @notice Action 5: Fully restrict the IGP-45 test DEXes (old
+    ///         DexFactory) at the Liquidity Layer, same pattern as Action 1:
+    ///         - dex id1 wstETH/ETH (0x25F0...F901), tokens wstETH + ETH
+    ///         - dex id3 WBTC/cbBTC (0x1d3e...204d), tokens WBTC + cbBTC
+    ///         Borrow to dust (10 / 20), supply base withdrawal limit to dust
+    ///         (10), and current withdrawal limit pinned to the full user
+    ///         supply so the residual cannot be withdrawn even once.
+    /// @dev Borrow side is already non-borrowable (limit below current
+    ///      borrow) but still on the 20% / 12h expand config; this pins it.
+    ///      id1 residual includes vault 34's single position (NFT 2296);
+    ///      id3 residual is the locked initial shares only.
+    function action5() internal isActionSkippable(5) {
+        _fullyRestrictDex(
+            OLD_DEX_ID1_WSTETH_ETH,
+            wstETH_ADDRESS,
+            ETH_ADDRESS
+        );
+        _fullyRestrictDex(
+            OLD_DEX_ID3_WBTC_CBBTC,
+            WBTC_ADDRESS,
+            cbBTC_ADDRESS
+        );
+    }
+
+    function _fullyRestrictDex(
+        address dex_,
+        address token0_,
+        address token1_
+    ) internal {
+        setBorrowProtocolLimitsPaused(dex_, token0_);
+        setBorrowProtocolLimitsPaused(dex_, token1_);
+
+        setSupplyProtocolLimitsPaused(dex_, token0_);
+        setSupplyProtocolLimitsPaused(dex_, token1_);
+
+        IFluidLiquidityWithdrawalLimit(address(LIQUIDITY))
+            .updateUserWithdrawalLimit(dex_, token0_, type(uint256).max);
+        IFluidLiquidityWithdrawalLimit(address(LIQUIDITY))
+            .updateUserWithdrawalLimit(dex_, token1_, type(uint256).max);
     }
 
     /**
