@@ -39,6 +39,10 @@ interface IFluidLiquidityWithdrawalLimit {
 ///
 ///         Action 3 raises the weETH/ETH T1 vault (182) from the IGP-140 dust
 ///         limits to launch limits.
+///
+///         Action 4 reduces the Team Multisig's wstETH and cbBTC borrow limits
+///         at the Liquidity Layer (IGP-107 DEX Lite credit) to dust, the same
+///         treatment USDC and USDT received in IGP-132.
 contract PayloadIGP141 is PayloadIGPPriceHelpers {
     uint256 public constant PROPOSAL_ID = 141;
 
@@ -69,6 +73,9 @@ contract PayloadIGP141 is PayloadIGPPriceHelpers {
 
         // Action 3: Raise weETH/ETH vault (182) to launch limits.
         action3();
+
+        // Action 4: Reduce Team Multisig wstETH & cbBTC borrow limits to dust.
+        action4();
     }
 
     function verifyProposal() public view override {}
@@ -178,6 +185,18 @@ contract PayloadIGP141 is PayloadIGPPriceHelpers {
         });
 
         setVaultLimits(VAULT_WEETH_ETH);
+    }
+
+    /// @notice Action 4: Reduce the Team Multisig's wstETH & cbBTC borrow
+    ///         limits on the Liquidity Layer to dust (base 10 / max 20 wei).
+    /// @dev Same treatment as USDC & USDT in IGP-132 (action 2). The IGP-107
+    ///      DEX Lite credit lines ($1M wstETH, $1M cbBTC) are unused (0 debt).
+    ///      The AdminModule reverts `LimitZero` on a literal zero, so base 10 /
+    ///      max 20 wei is the canonical dust limit. Mode 1 (with interest)
+    ///      matches the existing config for both tokens, so no mode switch.
+    function action4() internal isActionSkippable(4) {
+        setBorrowProtocolLimitsPaused(TEAM_MULTISIG, wstETH_ADDRESS);
+        setBorrowProtocolLimitsPaused(TEAM_MULTISIG, cbBTC_ADDRESS);
     }
 
     /**

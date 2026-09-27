@@ -1,10 +1,10 @@
-# Close Down the dexV1 Test DEX, Rebalance Vault 3, and Launch the weETH/ETH Vault
+# Close Down the dexV1 Test DEX, Rebalance Vault 3, Launch the weETH/ETH Vault, and Remove Team Multisig wstETH/cbBTC Borrow Limits
 
 > **DRAFT.** Actions are added as they are agreed in #gov-proposals-lineup.
 
 ## Summary
 
-This proposal fully restricts the Liquidity Layer limits of the early **dexV1 test DEX** (wstETH/ETH, `0x6d83...e03a`) so it can no longer withdraw or borrow, rebalances the **wstETH/ETH T1 vault (3)** borrow side that is stuck behind its dust borrow limit, and raises the **weETH/ETH T1 vault (182)** from the IGP-140 dust limits to launch limits.
+This proposal fully restricts the Liquidity Layer limits of the early **dexV1 test DEX** (wstETH/ETH, `0x6d83...e03a`) so it can no longer withdraw or borrow, rebalances the **wstETH/ETH T1 vault (3)** borrow side that is stuck behind its dust borrow limit, raises the **weETH/ETH T1 vault (182)** from the IGP-140 dust limits to launch limits, and reduces the **Team Multisig** wstETH and cbBTC borrow limits on the Liquidity Layer to dust.
 
 ## Code Changes
 
@@ -51,12 +51,26 @@ The supply-side difference (≈135 wei wstETH) is below Liquidity Layer storage 
 - Set via `setVaultLimits` with the standard T1 expansion (50% over 6 hours).
 - Risk parameters (CF 94% / LT 96% / LML 97% / LP 1%) were set by the Team Multisig. Team Multisig vault auth (granted in IGP-140) is kept for the pending OracleV2 switch.
 
+### Action 4: Reduce Team Multisig wstETH & cbBTC Borrow Limits to Dust
+
+- **User**: Team Multisig `0x4F6F977aCDD1177DCD81aB83074855EcB9C2D49e`
+- **Tokens**: wstETH (`0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0`), cbBTC (`0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf`)
+
+| Parameter | Current (IGP-107 DEX Lite credit) | New |
+| --- | --- | --- |
+| Base / max debt ceiling | $1M each (≈185 wstETH, ≈9.1 cbBTC borrowable) | **`10 / 20` wei** |
+| Expansion | 1% over max duration | 0.01% over max duration |
+
+- Calls `setBorrowProtocolLimitsPaused(TEAM_MULTISIG, token)` for wstETH and cbBTC, the same treatment USDC and USDT received in IGP-132 (action 2).
+- Both credit lines are unused (0 debt). Mode 1 (with interest) matches the existing config, so no mode switch is triggered.
+
 ## Description
 
 1. **dexV1 test DEX**: closes out the last live Liquidity Layer limits of an early test deployment after the Team Multisig exits its position.
 2. **Vault 3 rebalance**: clears the borrow-side drift the rebalancer cannot reach while the vault sits at dust borrow limits, and returns it to dust in the same action.
 3. **weETH/ETH vault**: moves vault 182 from dust to launch limits.
+4. **Team Multisig credit**: closes the unused IGP-107 wstETH and cbBTC DEX Lite credit lines, matching the USDC/USDT cut in IGP-132.
 
 ## Conclusion
 
-IGP-141 closes the dexV1 test DEX at the Liquidity Layer, rebalances vault 3 without leaving any borrow capacity open, and launches the weETH/ETH vault.
+IGP-141 closes the dexV1 test DEX at the Liquidity Layer, rebalances vault 3 without leaving any borrow capacity open, launches the weETH/ETH vault, and closes the Team Multisig's remaining wstETH/cbBTC credit lines.
