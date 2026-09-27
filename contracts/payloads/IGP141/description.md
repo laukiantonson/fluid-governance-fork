@@ -1,0 +1,62 @@
+# Close Down the dexV1 Test DEX, Rebalance Vault 3, and Launch the weETH/ETH Vault
+
+> **DRAFT.** Actions are added as they are agreed in #gov-proposals-lineup.
+
+## Summary
+
+This proposal fully restricts the Liquidity Layer limits of the early **dexV1 test DEX** (wstETH/ETH, `0x6d83...e03a`) so it can no longer withdraw or borrow, rebalances the **wstETH/ETH T1 vault (3)** borrow side that is stuck behind its dust borrow limit, and raises the **weETH/ETH T1 vault (182)** from the IGP-140 dust limits to launch limits.
+
+## Code Changes
+
+### Action 1: Fully Restrict the dexV1 Test DEX at the Liquidity Layer
+
+- **DEX**: `0x6d83f60eEac0e50A1250760151E81Db2a278e03a` (wstETH / ETH, early dexV1 test deployment, not deployed by the DexFactory)
+- **Tokens**: wstETH (`0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0`), ETH (`0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE`)
+
+| Step | Call | Effect |
+| --- | --- | --- |
+| Borrow | `setBorrowProtocolLimitsPaused` for wstETH and ETH | Debt ceiling `10 / 20` (dust), expansion 0.01% over max duration |
+| Supply | `setSupplyProtocolLimitsPaused` for wstETH and ETH | Base withdrawal limit `10` (dust), expansion 0.01% over max duration |
+| Withdrawal limit | `updateUserWithdrawalLimit(dex, token, type(uint256).max)` for wstETH and ETH | Current withdrawal limit set to the full user supply, withdrawable `0` |
+
+The last step matters: with only the supply restriction, the first operation after execution could still withdraw the full residual once (the withdrawal limit is only recomputed on the next operate). Setting the limit to the full supply closes that.
+
+**Ordering:** the Team Multisig closes its position in this DEX before this proposal executes (swap/arbitrage pause, then withdraw and payback). If this action executes first, the Team Multisig can no longer withdraw.
+
+### Action 2: Rebalance the wstETH/ETH T1 Vault (3)
+
+- **Vault**: `0xA0F83Fc5885cEBc0420ce7C7b139Adc80c4F4D91` (T1, wstETH collateral / ETH debt)
+- **Rebalancer**: Reserve Contract (`0x264786EF916af64a1DB19F513F24a3681734ce92`)
+
+The vault's own total borrow is **≈0.00493 ETH** above its borrow at the Liquidity Layer. `rebalance()` borrows that difference to the Reserve, but the vault's Liquidity Layer ETH borrow limit is at dust (`11 / 22`), so the borrow fails and the rebalancer skips it.
+
+| Step | Call |
+| --- | --- |
+| 1 | Raise the vault's ETH debt ceiling at the Liquidity Layer to `1e18` raw (≈1 ETH; vault borrow ≈0.454 ETH) |
+| 2 | `FLUID_RESERVE.updateRebalancer(TIMELOCK, true)`, `rebalanceVaults([vault 3], [0])`, `updateRebalancer(TIMELOCK, false)` |
+| 3 | Restore the dust ETH debt ceiling via `setBorrowProtocolLimitsPaused` |
+
+The supply-side difference (≈135 wei wstETH) is below Liquidity Layer storage precision (`UserModule__OperateAmountInsufficient`), so the vault's try/catch skips it. No Reserve allowance is needed.
+
+### Action 3: Launch Limits for the weETH/ETH T1 Vault (182)
+
+- **Vault**: `getVaultAddress(182)` = `0x0b8a681eD46EA8ec6b97d686dF0631Fbf84B03D2` (T1, weETH collateral / ETH debt)
+
+| Parameter | Current (IGP-140) | New |
+| --- | --- | --- |
+| Base withdrawal limit | ≈$7k | **$8M** |
+| Base borrow limit | ≈$7k | **$15M** |
+| Max borrow limit | ≈$9k | **$30M** |
+
+- Set via `setVaultLimits` with the standard T1 expansion (50% over 6 hours).
+- Risk parameters (CF 94% / LT 96% / LML 97% / LP 1%) were set by the Team Multisig. Team Multisig vault auth (granted in IGP-140) is kept for the pending OracleV2 switch.
+
+## Description
+
+1. **dexV1 test DEX**: closes out the last live Liquidity Layer limits of an early test deployment after the Team Multisig exits its position.
+2. **Vault 3 rebalance**: clears the borrow-side drift the rebalancer cannot reach while the vault sits at dust borrow limits, and returns it to dust in the same action.
+3. **weETH/ETH vault**: moves vault 182 from dust to launch limits.
+
+## Conclusion
+
+IGP-141 closes the dexV1 test DEX at the Liquidity Layer, rebalances vault 3 without leaving any borrow capacity open, and launches the weETH/ETH vault.
