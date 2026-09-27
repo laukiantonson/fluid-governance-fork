@@ -1,10 +1,10 @@
-# Close Down the dexV1 Test DEX, Rebalance Vault 3, Launch the weETH/ETH Vault, Remove Team Multisig wstETH/cbBTC Borrow Limits, and Close Down IGP-45 Test DEXes id1/id3
+# Close Down the dexV1 Test DEX, Rebalance Vault 3, Launch the weETH/ETH Vault, Remove Team Multisig wstETH/cbBTC Borrow Limits, Close Down IGP-45 Test DEXes id1/id3, and Restrict and Pause Pre-Launch Vaults
 
 > **DRAFT.** Actions are added as they are agreed in #gov-proposals-lineup.
 
 ## Summary
 
-This proposal fully restricts the Liquidity Layer limits of the early **dexV1 test DEX** (wstETH/ETH, `0x6d83...e03a`) so it can no longer withdraw or borrow, rebalances the **wstETH/ETH T1 vault (3)** borrow side that is stuck behind its dust borrow limit, raises the **weETH/ETH T1 vault (182)** from the IGP-140 dust limits to launch limits, reduces the **Team Multisig** wstETH and cbBTC borrow limits on the Liquidity Layer to dust, and fully restricts the Liquidity Layer limits of the IGP-45 test DEXes **id1** (wstETH/ETH) and **id3** (WBTC/cbBTC).
+This proposal fully restricts the Liquidity Layer limits of the early **dexV1 test DEX** (wstETH/ETH, `0x6d83...e03a`) so it can no longer withdraw or borrow, rebalances the **wstETH/ETH T1 vault (3)** borrow side that is stuck behind its dust borrow limit, raises the **weETH/ETH T1 vault (182)** from the IGP-140 dust limits to launch limits, reduces the **Team Multisig** wstETH and cbBTC borrow limits on the Liquidity Layer to dust, fully restricts the Liquidity Layer limits of the IGP-45 test DEXes **id1** (wstETH/ETH) and **id3** (WBTC/cbBTC), and restricts and pauses at the Liquidity Layer the five **pre-launch vaults** of the old VaultFactory, the two old DEXes, and the debt of vaults **42 / 43**.
 
 ## Code Changes
 
@@ -78,6 +78,26 @@ Same three steps as Action 1 for each DEX and token: `setBorrowProtocolLimitsPau
 
 - **Residual stays locked.** id1: the only user is vault 34 with a single position (NFT 2296); the rest is the locked initial shares. id3: no user holds shares (vaults 41/42/43 whitelisted, all at 0); the residual is the locked initial shares only.
 
+### Action 6: Restrict and Pause Pre-Launch Vaults and Old DEXes at the Liquidity Layer
+
+**Pre-launch vaults** (old VaultFactory `0x3B38099b79a143038a3935C619B2A3eA70438C60`, created Feb 2024, closed for new activity in IGP-24):
+
+| Vault | Supply token | Borrow token |
+| --- | --- | --- |
+| `0x5eA9A2B42Bc9aC8CAC76E19F0Fcd5C1b06950807` (ETH/USDC) | ETH | USDC |
+| `0xE53794f2ed0839F24170079A9F3c5368147F6c81` (ETH/USDT) | ETH | USDT |
+| `0x28680f14C4Bb86B71119BC6e90E4e6D87E6D1f51` (wstETH/ETH) | wstETH | ETH |
+| `0x460143a489729a3cA32DeA82fa48ea61175accbc` (wstETH/USDC) | wstETH | USDC |
+| `0x2B251211f5Ff0A753A8d5B9411d736875174f375` (wstETH/USDT) | wstETH | USDT |
+
+For each: `setSupplyProtocolLimitsPaused` (base withdrawal limit `10`), `setBorrowProtocolLimitsPaused` (debt ceiling `10 / 20`), `updateUserWithdrawalLimit(vault, supplyToken, type(uint256).max)`, then `LIQUIDITY.pauseUser(vault, [supplyToken], [borrowToken])`.
+
+**Vaults 42 / 43** (T2, smart collateral on dex id3, debt at the Liquidity Layer): `setBorrowProtocolLimitsPaused` for USDC (42) / USDT (43), then `pauseUser` on the borrow side. Neither vault has open positions.
+
+**dex id1 / dex id3** (limits already restricted in Action 5): `LIQUIDITY.pauseUser(dex, [token0, token1], [token0, token1])`. This also freezes the vaults built on them (34, 41, 42, 43).
+
+DEX-level user configs of the old-factory DEXes are not governed by the Timelock, so this action only touches the Liquidity Layer.
+
 ## Description
 
 1. **dexV1 test DEX**: closes out the last live Liquidity Layer limits of an early test deployment after the Team Multisig exits its position.
@@ -85,7 +105,8 @@ Same three steps as Action 1 for each DEX and token: `setBorrowProtocolLimitsPau
 3. **weETH/ETH vault**: moves vault 182 from dust to launch limits.
 4. **Team Multisig credit**: closes the unused IGP-107 wstETH and cbBTC DEX Lite credit lines, matching the USDC/USDT cut in IGP-132.
 5. **IGP-45 test DEXes id1/id3**: closes the Liquidity Layer limits of two early test DEXes holding only dust.
+6. **Pre-launch vaults and old DEXes**: restricts and pauses at the Liquidity Layer the remaining protocols from the old vault and DEX factories.
 
 ## Conclusion
 
-IGP-141 closes the dexV1 test DEX at the Liquidity Layer, rebalances vault 3 without leaving any borrow capacity open, launches the weETH/ETH vault, closes the Team Multisig's remaining wstETH/cbBTC credit lines, and closes the IGP-45 test DEXes id1/id3 at the Liquidity Layer.
+IGP-141 closes the dexV1 test DEX at the Liquidity Layer, rebalances vault 3 without leaving any borrow capacity open, launches the weETH/ETH vault, closes the Team Multisig's remaining wstETH/cbBTC credit lines, closes the IGP-45 test DEXes id1/id3 at the Liquidity Layer, and restricts and pauses the remaining pre-launch vaults and old DEXes.
