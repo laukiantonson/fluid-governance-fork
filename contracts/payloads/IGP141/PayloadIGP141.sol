@@ -6,6 +6,7 @@ import {PayloadIGPPriceHelpers} from "../common/pricehelpers.sol";
 import {
     AdminModuleStructs as FluidLiquidityAdminStructs
 } from "../common/interfaces/IFluidLiquidity.sol";
+import {IDSAV2} from "../common/interfaces/IDSA.sol";
 
 /// @notice Liquidity Layer admin call not exposed on the shared
 ///         IFluidLiquidityAdmin interface. Signature added to the Liquidity
@@ -44,17 +45,25 @@ interface IFluidLiquidityWithdrawalLimit {
 ///         at the Liquidity Layer (IGP-107 DEX Lite credit) to dust, the same
 ///         treatment USDC and USDT received in IGP-132.
 ///
-///         Action 5 fully restricts the Liquidity Layer supply and borrow
-///         limits of the two remaining IGP-45 test DEXes (old DexFactory):
-///         dex id1 wstETH/ETH 0x25F0...F901 and dex id3 WBTC/cbBTC
-///         0x1d3e...204d, same pattern as Action 1. Residual supply is
-///         ~$124 (id1, one vault 34 position + locked init shares) and
-///         ~$343 (id3, locked init shares only); it stays locked.
+///         Action 5 exits iETHv2's residual test positions (old vault #3
+///         NFT 18, vault 34 NFT 2296) through its DSA before Actions 6 and
+///         7 freeze them. The Timelock sends 0.005 ETH for the ETH leg of
+///         the vault 34 repayment; about $67 returns to iETHv2.
 ///
-///         Action 6 fully restricts and pauses at the Liquidity Layer the
+///         Action 6 fully restricts the Liquidity Layer supply and borrow
+///         limits of the IGP-45 test DEXes dex id1 wstETH/ETH 0x25F0...F901
+///         and dex id3 WBTC/cbBTC 0x1d3e...204d (old DexFactory), same
+///         pattern as Action 1. The residual supply (vault 34 dust + locked
+///         init shares) stays locked.
+///
+///         Action 7 fully restricts and pauses at the Liquidity Layer the
 ///         five pre-launch vaults of the old VaultFactory (0x3B38...8C60,
 ///         closed in IGP-24), the old DexFactory dex id1 / dex id3, and the
 ///         Liquidity Layer debt configs of the T2 vaults 42 / 43 on dex id3.
+///
+///         Action 8 restricts and pauses at the Liquidity Layer the last
+///         IGP-45 test DEX, dex id2 (USDC/USDT), and the six empty T3
+///         vaults 35-40 built on it.
 contract PayloadIGP141 is PayloadIGPPriceHelpers {
     uint256 public constant PROPOSAL_ID = 141;
 
@@ -75,6 +84,28 @@ contract PayloadIGP141 is PayloadIGPPriceHelpers {
     uint256 public constant VAULT_WEETH_ETH_ID = 182; // T1: weETH / ETH
 
     // --- Action 5 ---
+    /// @dev FLUID-VAULT-T4-A connector input (operatePerfect)
+    struct T4OperatePerfect {
+        address vaultAddress;
+        uint256 nftId;
+        int256 perfectColShares;
+        int256 colToken0MinMax;
+        int256 colToken1MinMax;
+        int256 perfectDebtShares;
+        int256 debtToken0MinMax;
+        int256 debtToken1MinMax;
+        uint256 getNftId;
+        uint256[] setIds;
+    }
+
+    /// @dev iETHv2 strategy DSA (#36121). Auths: iETHv2 vault + Timelock.
+    address public constant IETHV2_DSA =
+        0x9600A48ed0f931d0c422D574e3275a90D8b22745;
+    /// @dev T4 wstETH/ETH vault on old dex id1.
+    address public constant VAULT_34_WSTETH_ETH_T4 =
+        0x57fed7c9b3c763999c519264931790cBcA331417;
+
+    // --- Action 6 ---
     /// @dev IGP-45 test DEXes, deployed from the old DexFactory, so they
     ///      cannot be resolved via getDexAddress().
     address public constant OLD_DEX_ID1_WSTETH_ETH =
@@ -82,7 +113,13 @@ contract PayloadIGP141 is PayloadIGPPriceHelpers {
     address public constant OLD_DEX_ID3_WBTC_CBBTC =
         0x1d3e52a11B98Ed2AAB7eB0Bfe1cbB6525233204d;
 
-    // --- Action 6 ---
+    // --- Action 8 ---
+    /// @dev IGP-45 test dex id2 (USDC/USDT), old DexFactory. Only DEX-level
+    ///      users are the T3 vaults 35-40.
+    address public constant OLD_DEX_ID2_USDC_USDT =
+        0x085B07A30381F3Cc5A4250e10E4379d465b770ac;
+
+    // --- Action 7 ---
     /// @dev Pre-launch vaults from the old VaultFactory 0x3B38...8C60
     ///      (closed in IGP-24). Not resolvable via getVaultAddress().
     address public constant OLD_VAULT_1_ETH_USDC =
@@ -115,11 +152,17 @@ contract PayloadIGP141 is PayloadIGPPriceHelpers {
         // Action 4: Reduce Team Multisig wstETH & cbBTC borrow limits to dust.
         action4();
 
-        // Action 5: Fully restrict IGP-45 test dex id1 and dex id3 at the Liquidity Layer.
+        // Action 5: iETHv2 DSA exits its residual test positions (must run before 6 and 7).
         action5();
 
-        // Action 6: Restrict + pause old pre-launch vaults and old dex id1 / id3 at the Liquidity Layer.
+        // Action 6: Fully restrict IGP-45 test dex id1 and dex id3 at the Liquidity Layer.
         action6();
+
+        // Action 7: Restrict + pause old pre-launch vaults and old dex id1 / id3 at the Liquidity Layer.
+        action7();
+
+        // Action 8: Restrict + pause old dex id2 (USDC/USDT) and T3 vaults 35-40 at the Liquidity Layer.
+        action8();
     }
 
     function verifyProposal() public view override {}
@@ -243,7 +286,72 @@ contract PayloadIGP141 is PayloadIGPPriceHelpers {
         setBorrowProtocolLimitsPaused(TEAM_MULTISIG, cbBTC_ADDRESS);
     }
 
-    /// @notice Action 5: Fully restrict the IGP-45 test DEXes (old
+    /// @notice Action 5: iETHv2's DSA exits its residual test positions
+    ///         (old vault #3 NFT 18, vault 34 NFT 2296) before Actions 6
+    ///         and 7 freeze them.
+    /// @dev Only governance can move these: the DSA's auths are the iETHv2
+    ///      vault and the Timelock, and iETHv2's spell() is proxy-admin
+    ///      (Timelock) only. Cast directly on the DSA, like IGP-109 on
+    ///      TREASURY.
+    ///      - NFT 18: 0.01 wstETH, no debt, plain max withdraw. Frees the
+    ///        wstETH for the vault 34 wstETH debt leg.
+    ///      - NFT 2296: vault 34 books 4,000,002 more debt shares than dex
+    ///        id1 records for it, so a max payback underflows. Repay the
+    ///        4e15 dex-side shares explicitly (4,000,005 dust shares stay),
+    ///        and keep 1e13 col shares (0.1%) behind that dust.
+    ///      - The DSA holds no ETH; the Timelock sends 0.005 ETH with the
+    ///        cast for the ETH leg (~0.00421 needed), unused ETH is refunded.
+    ///        Payback caps 0.0045 wstETH / 0.005 ETH leave 30% / 19% headroom.
+    ///      - try/catch: anyone can partially repay NFT 2296, which would
+    ///        make the fixed share amount revert; that must not block the
+    ///        rest of the IGP. Verify by DSA balances, not tx status.
+    function action5() internal isActionSkippable(5) {
+        string[] memory targets_ = new string[](2);
+        bytes[] memory datas_ = new bytes[](2);
+
+        // old vault #3 NFT 18: withdraw all 0.01 wstETH
+        targets_[0] = "FLUID-A";
+        datas_[0] = abi.encodeWithSignature(
+            "operate(address,uint256,int256,int256,uint256)",
+            OLD_VAULT_3_WSTETH_ETH,
+            18,
+            type(int256).min,
+            int256(0),
+            0
+        );
+
+        // vault 34 NFT 2296: repay the dex-side debt shares, withdraw all but 0.1% of the collateral
+        targets_[1] = "FLUID-VAULT-T4-A";
+        datas_[1] = abi.encodeWithSelector(
+            bytes4(
+                keccak256(
+                    "operatePerfect((address,uint256,int256,int256,int256,int256,int256,int256,uint256,uint256[]))"
+                )
+            ),
+            T4OperatePerfect({
+                vaultAddress: VAULT_34_WSTETH_ETH_T4,
+                nftId: 2296,
+                perfectColShares: -9_990_000_000_000_000,
+                colToken0MinMax: -1,
+                colToken1MinMax: -1,
+                perfectDebtShares: -4_000_000_000_000_000,
+                debtToken0MinMax: -0.0045 ether,
+                debtToken1MinMax: -0.005 ether,
+                getNftId: 0,
+                setIds: new uint256[](6)
+            })
+        );
+
+        try
+            IDSAV2(IETHV2_DSA).cast{value: 0.005 ether}(
+                targets_,
+                datas_,
+                address(this)
+            )
+        {} catch {}
+    }
+
+    /// @notice Action 6: Fully restrict the IGP-45 test DEXes (old
     ///         DexFactory) at the Liquidity Layer, same pattern as Action 1:
     ///         - dex id1 wstETH/ETH (0x25F0...F901), tokens wstETH + ETH
     ///         - dex id3 WBTC/cbBTC (0x1d3e...204d), tokens WBTC + cbBTC
@@ -252,9 +360,9 @@ contract PayloadIGP141 is PayloadIGPPriceHelpers {
     ///         supply so the residual cannot be withdrawn even once.
     /// @dev Borrow side is already non-borrowable (limit below current
     ///      borrow) but still on the 20% / 12h expand config; this pins it.
-    ///      id1 residual includes vault 34's single position (NFT 2296);
-    ///      id3 residual is the locked initial shares only.
-    function action5() internal isActionSkippable(5) {
+    ///      id1 residual includes vault 34's dust position (NFT 2296, after
+    ///      Action 5); id3 residual is the locked initial shares only.
+    function action6() internal isActionSkippable(6) {
         _fullyRestrictDex(
             OLD_DEX_ID1_WSTETH_ETH,
             wstETH_ADDRESS,
@@ -267,19 +375,19 @@ contract PayloadIGP141 is PayloadIGPPriceHelpers {
         );
     }
 
-    /// @notice Action 6: Fully restrict and pause the remaining old
+    /// @notice Action 7: Fully restrict and pause the remaining old
     ///         protocols at the Liquidity Layer.
     ///         - old VaultFactory vaults #1-#5: supply + borrow limits to
     ///           dust, withdrawal limit pinned to full supply, supply and
     ///           borrow paused at the Liquidity Layer.
     ///         - T2 vaults 42 / 43 (smart col on dex id3): Liquidity Layer
     ///           debt limits to dust and paused.
-    ///         - dex id1 / dex id3 (limits already dusted in Action 5):
+    ///         - dex id1 / dex id3 (limits already dusted in Action 6):
     ///           paused at the Liquidity Layer for supply and borrow, which
     ///           also freezes the vaults built on them (34, 41, 42, 43).
     /// @dev DEX-level configs of the old-factory dexes are not governed by
     ///      the Timelock (DexT1__NotAnAuth), so no DEX-level calls here.
-    function action6() internal isActionSkippable(6) {
+    function action7() internal isActionSkippable(7) {
         // old VaultFactory vaults: (supply token, borrow token)
         _restrictAndPauseVault(OLD_VAULT_1_ETH_USDC, ETH_ADDRESS, USDC_ADDRESS);
         _restrictAndPauseVault(OLD_VAULT_2_ETH_USDT, ETH_ADDRESS, USDT_ADDRESS);
@@ -294,6 +402,42 @@ contract PayloadIGP141 is PayloadIGPPriceHelpers {
         // dex id1 / id3: pause at the Liquidity Layer
         _pauseUserAtLiquidity(OLD_DEX_ID1_WSTETH_ETH, wstETH_ADDRESS, ETH_ADDRESS);
         _pauseUserAtLiquidity(OLD_DEX_ID3_WBTC_CBBTC, WBTC_ADDRESS, cbBTC_ADDRESS);
+    }
+
+    /// @notice Action 8: Restrict and pause the last IGP-45 test DEX, old
+    ///         dex id2 (USDC/USDT), and the T3 vaults 35-40 built on it at
+    ///         the Liquidity Layer.
+    ///         - dex id2: borrow limits to dust and borrow paused (no
+    ///           supply configs; its ~$227 init debt stays locked).
+    ///         - vaults 35-40: 0 positions, 0 supply, but supply configs
+    ///           still open (25% / 12h). Supply limits to dust and paused.
+    /// @dev All seven configs are already mode 1, so the dust configs cause
+    ///      no mode switch.
+    function action8() internal isActionSkippable(8) {
+        setBorrowProtocolLimitsPaused(OLD_DEX_ID2_USDC_USDT, USDC_ADDRESS);
+        setBorrowProtocolLimitsPaused(OLD_DEX_ID2_USDC_USDT, USDT_ADDRESS);
+        address[] memory borrowTokens_ = new address[](2);
+        borrowTokens_[0] = USDC_ADDRESS;
+        borrowTokens_[1] = USDT_ADDRESS;
+        LIQUIDITY.pauseUser(
+            OLD_DEX_ID2_USDC_USDT,
+            new address[](0),
+            borrowTokens_
+        );
+
+        _restrictAndPauseSupply(getVaultAddress(35), ETH_ADDRESS);
+        _restrictAndPauseSupply(getVaultAddress(36), wstETH_ADDRESS);
+        _restrictAndPauseSupply(getVaultAddress(37), weETH_ADDRESS);
+        _restrictAndPauseSupply(getVaultAddress(38), WBTC_ADDRESS);
+        _restrictAndPauseSupply(getVaultAddress(39), cbBTC_ADDRESS);
+        _restrictAndPauseSupply(getVaultAddress(40), sUSDe_ADDRESS);
+    }
+
+    function _restrictAndPauseSupply(address user_, address token_) internal {
+        setSupplyProtocolLimitsPaused(user_, token_);
+        address[] memory supplyTokens_ = new address[](1);
+        supplyTokens_[0] = token_;
+        LIQUIDITY.pauseUser(user_, supplyTokens_, new address[](0));
     }
 
     function _restrictAndPauseVault(
