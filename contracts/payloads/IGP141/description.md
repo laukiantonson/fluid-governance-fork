@@ -156,9 +156,10 @@ Borrow to dust = `setBorrowProtocolLimitsPaused` (debt ceiling `10 / 20`). Pause
 | Step | Call |
 | --- | --- |
 | 1 | `setBorrowProtocolLimitsPausedDex(dex 5, vault 62)`, vault 62 (`0xAF861f04304216A0CeeA709D87556C826109E7F3`, T4) borrow at the DEX to dust |
-| 2 | `updateMaxSupplyShares(1)` and `updateMaxBorrowShares(1)` on dex 5 |
+| 2 | `pauseUser(vault 62, false, true)` on dex 5: re-pauses vault 62 borrow, because the DEX borrow config write sets the user back to unpaused. Its supply side is untouched and stays paused |
+| 3 | `updateMaxSupplyShares(1)` and `updateMaxBorrowShares(1)` on dex 5 |
 
-dex 5 is already paused at the Liquidity Layer, so no pause call is needed.
+dex 5 is already paused at the Liquidity Layer. This action does not write its Liquidity Layer config, and those writes keep the pause bit anyway, so no Liquidity Layer pause call is needed.
 
 ### Action 11: Cap dex 27 (wstUSR-USDC) Supply Shares
 

@@ -506,14 +506,20 @@ contract PayloadIGP141 is PayloadIGPPriceHelpers {
 
     /// @notice Action 10: Close the dex 5 USDC-ETH test market (Nov 2024,
     ///         swaps and vault 62 paused since Dec 2024, never launched).
-    ///         - vault 62 (T4) borrow at dex 5 to dust.
+    ///         - vault 62 (T4) borrow at dex 5 to dust, then re-paused:
+    ///           dex updateUserBorrowConfigs sets bit 0 (= unpaused), so the
+    ///           live borrow pause must be re-applied. v62 supply at dex 5
+    ///           is untouched and stays paused (pausing it again reverts).
     ///         - dex 5 max supply / borrow shares to 1.
     ///         dex 5 is already paused at the Liquidity Layer (USDC + ETH,
-    ///         supply + borrow), so no pause call here.
+    ///         supply + borrow). Nothing here writes its LL config, and LL
+    ///         config writes keep the pause bit anyway, so no LL pause call.
     function action10() internal isActionSkippable(10) {
         address dex_ = getDexAddress(DEX_USDC_ETH_ID);
+        address v62_ = getVaultAddress(VAULT_T4_DEX5_ID);
 
-        setBorrowProtocolLimitsPausedDex(dex_, getVaultAddress(VAULT_T4_DEX5_ID));
+        setBorrowProtocolLimitsPausedDex(dex_, v62_);
+        IFluidDex(dex_).pauseUser(v62_, false, true);
 
         IFluidDex(dex_).updateMaxSupplyShares(1);
         IFluidDex(dex_).updateMaxBorrowShares(1);
