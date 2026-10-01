@@ -1,4 +1,4 @@
-# Close Down the dexV1 Test DEX, Rebalance Vault 3, Launch the weETH/ETH Vault, Remove Team Multisig wstETH/cbBTC Borrow Limits, Exit iETHv2 Test Positions, Close Down IGP-45 Test DEXes id1/id2/id3, and Restrict and Pause Pre-Launch Vaults and Vaults 35-40
+# Close Down the dexV1 Test DEX, Rebalance Vault 3, Launch the weETH/ETH Vault, Remove Team Multisig wstETH/cbBTC Borrow Limits, Exit iETHv2 Test Positions, Close Down IGP-45 Test DEXes id1/id2/id3, Restrict and Pause Pre-Launch Vaults, Vaults 35-40, USDe Vaults 66-73 and Dust-Launch Vaults, Close dex 5, Cap dex 27
 
 > **DRAFT.** Actions are added as they are agreed in #gov-proposals-lineup.
 
@@ -132,6 +132,47 @@ DEX-level user configs of the old-factory DEXes are not governed by the Timelock
 
 All seven configs are already mode 1 (with interest), so no mode switch is triggered.
 
+### Action 9: Restrict and Pause the Hidden USDe Vaults 66-73 at the Liquidity Layer
+
+All hidden in the UI, dust positions only.
+
+| Vault | Address | Supply token | Borrow token | Change |
+| --- | --- | --- | --- | --- |
+| 66 | `0xB98EeA7132f1De6EC24D4Ee4AfBDf4d63Ef1a9F0` | USDe | USDC | borrow to dust (max was ≈$53.5M) + pause |
+| 67 | `0x8FB5c0896C70B0056A09249EcEF7E7Ee01f037AF` | USDe | USDT | borrow to dust (max was ≈$53.3M) + pause |
+| 68 | `0x75580D4be33C61700969583fDAeC566Ca84e5B69` | USDe | GHO | borrow to dust (max was ≈$21.6M) + pause |
+| 69 | `0x2f6c2A725EA6c4304cdC92B49F637a7735362EF5` | ETH | USDe | pause (borrow already dust) |
+| 70 | `0x903c5704Df7BF307E27e9E3dE76EA295Bc1A2970` | wstETH | USDe | pause (borrow already dust) |
+| 71 | `0xC752107aE8447D85Cd5C06dA7089956Fe85dFDaB` | weETH | USDe | pause (borrow already dust) |
+| 72 | `0xD170252cbeC41235795D938cA19857CA4d7824a1` | WBTC | USDe | pause (borrow already dust) |
+| 73 | `0x75904e18b461eB60692264d40Adb0973D8f33b98` | cbBTC | USDe | pause (borrow already dust) |
+
+Borrow to dust = `setBorrowProtocolLimitsPaused` (debt ceiling `10 / 20`). Pause = `LIQUIDITY.pauseUser(vault, [supplyToken], [borrowToken])`.
+
+### Action 10: Close the dex 5 USDC-ETH Test Market and Vault 62
+
+**dex 5** `0x2886a01a0645390872a9eb99dAe1283664b0c524` (USDC / ETH) was a Nov 2024 test market. Swaps and vault 62 were paused in Dec 2024 and it never launched, but its share caps (7.5M supply / 5M borrow shares) and the vault 62 borrow config at the DEX were never cut.
+
+| Step | Call |
+| --- | --- |
+| 1 | `setBorrowProtocolLimitsPausedDex(dex 5, vault 62)`, vault 62 (`0xAF861f04304216A0CeeA709D87556C826109E7F3`, T4) borrow at the DEX to dust |
+| 2 | `updateMaxSupplyShares(1)` and `updateMaxBorrowShares(1)` on dex 5 |
+
+dex 5 is already paused at the Liquidity Layer, so no pause call is needed.
+
+### Action 11: Cap dex 27 (wstUSR-USDC) Supply Shares
+
+**dex 27** `0xd64e12101614209eE810EFDe214542A2cb68d9fD` (hidden): `updateMaxSupplyShares(1)`. No new deposits; existing LPs can still withdraw.
+
+### Action 12: Restrict and Pause the Dust-Launch Vaults 95 and 167
+
+| Vault | Address | Type | Change |
+| --- | --- | --- | --- |
+| 95 | `0xbee8D906BAc00610D8056C88EeEc5E9e9D48104C` | T1 eBTC / cbBTC | supply + borrow to dust, withdrawal limit pinned to full supply, `pauseUser` supply + borrow (same as Action 7) |
+| 167 | `0x46a719593378079F242faB86F0d7dEa50D84f28b` | T2 PST-USDC (dex 45) / USDC | USDC borrow at the Liquidity Layer to dust + `pauseUser` borrow; supply at dex 45 (`0x40D66b5f8f1521F97C2acA54dD200Fe3Ca035328`) to dust + `pauseUser(vault, true, false)` |
+
+Dex 45 itself is left unchanged.
+
 ## Description
 
 1. **dexV1 test DEX**: closes out the last live Liquidity Layer limits of an early test deployment after the Team Multisig exits its position.
@@ -142,7 +183,11 @@ All seven configs are already mode 1 (with interest), so no mode switch is trigg
 6. **IGP-45 test DEXes id1/id3**: closes the Liquidity Layer limits of two early test DEXes holding only dust.
 7. **Pre-launch vaults and old DEXes**: restricts and pauses at the Liquidity Layer the remaining protocols from the old vault and DEX factories.
 8. **IGP-45 test DEX id2 and vaults 35-40**: restricts and pauses at the Liquidity Layer the remaining IGP-45 test DEX id2 (USDC/USDT) and the six empty T3 vaults (35-40) built on it.
+9. **Hidden USDe vaults 66-73**: removes the remaining open borrow limits (≈$128M combined max) and pauses all eight at the Liquidity Layer.
+10. **dex 5 test market**: closes the share caps and vault 62 borrow config left open on a never-launched test DEX.
+11. **dex 27**: stops new deposits into the hidden wstUSR-USDC DEX.
+12. **Dust-launch vaults 95 / 167**: restricts and pauses two mainnet vaults that only hold dust launch positions.
 
 ## Conclusion
 
-IGP-141 closes the dexV1 test DEX at the Liquidity Layer, rebalances vault 3 without leaving any borrow capacity open, launches the weETH/ETH vault, closes the Team Multisig's remaining wstETH/cbBTC credit lines, returns iETHv2's residual test positions, closes the IGP-45 test DEXes id1/id2/id3 at the Liquidity Layer, and restricts and pauses the remaining pre-launch vaults, old DEXes, and vaults 35-40.
+IGP-141 closes the dexV1 test DEX at the Liquidity Layer, rebalances vault 3 without leaving any borrow capacity open, launches the weETH/ETH vault, closes the Team Multisig's remaining wstETH/cbBTC credit lines, returns iETHv2's residual test positions, closes the IGP-45 test DEXes id1/id2/id3 at the Liquidity Layer, restricts and pauses the remaining pre-launch vaults, old DEXes, and vaults 35-40, and closes the hidden USDe vaults 66-73, the dex 5 test market, dex 27 deposits, and the dust-launch vaults 95 / 167.

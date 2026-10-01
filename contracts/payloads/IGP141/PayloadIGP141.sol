@@ -7,6 +7,7 @@ import {
     AdminModuleStructs as FluidLiquidityAdminStructs
 } from "../common/interfaces/IFluidLiquidity.sol";
 import {IDSAV2} from "../common/interfaces/IDSA.sol";
+import {IFluidDex} from "../common/interfaces/IFluidDex.sol";
 
 /// @notice Liquidity Layer admin call not exposed on the shared
 ///         IFluidLiquidityAdmin interface. Signature added to the Liquidity
@@ -64,6 +65,17 @@ interface IFluidLiquidityWithdrawalLimit {
 ///         Action 8 restricts and pauses at the Liquidity Layer the last
 ///         IGP-45 test DEX, dex id2 (USDC/USDT), and the six empty T3
 ///         vaults 35-40 built on it.
+///
+///         Action 9 restricts and pauses the hidden USDe vaults 66-73 at the
+///         Liquidity Layer.
+///
+///         Action 10 closes the never-launched dex 5 (USDC-ETH) test market:
+///         vault 62 borrow at the DEX to dust, share caps to 1.
+///
+///         Action 11 caps dex 27 (wstUSR-USDC) supply shares at 1.
+///
+///         Action 12 restricts and pauses the dust-launch vaults 95
+///         (eBTC/cbBTC) and 167 (PST-USDC / USDC).
 contract PayloadIGP141 is PayloadIGPPriceHelpers {
     uint256 public constant PROPOSAL_ID = 141;
 
@@ -137,6 +149,28 @@ contract PayloadIGP141 is PayloadIGPPriceHelpers {
     uint256 public constant VAULT_42_ID = 42; // T2 on dex id3, USDC debt
     uint256 public constant VAULT_43_ID = 43; // T2 on dex id3, USDT debt
 
+    // --- Action 9 ---
+    uint256 public constant VAULT_USDE_USDC_ID = 66; // T1: USDe / USDC
+    uint256 public constant VAULT_USDE_USDT_ID = 67; // T1: USDe / USDT
+    uint256 public constant VAULT_USDE_GHO_ID = 68; // T1: USDe / GHO
+    uint256 public constant VAULT_ETH_USDE_ID = 69; // T1: ETH / USDe
+    uint256 public constant VAULT_WSTETH_USDE_ID = 70; // T1: wstETH / USDe
+    uint256 public constant VAULT_WEETH_USDE_ID = 71; // T1: weETH / USDe
+    uint256 public constant VAULT_WBTC_USDE_ID = 72; // T1: WBTC / USDe
+    uint256 public constant VAULT_CBBTC_USDE_ID = 73; // T1: cbBTC / USDe
+
+    // --- Action 10 ---
+    uint256 public constant DEX_USDC_ETH_ID = 5; // Nov 2024 test DEX, never launched
+    uint256 public constant VAULT_T4_DEX5_ID = 62; // T4 smart col / smart debt on dex 5
+
+    // --- Action 11 ---
+    uint256 public constant DEX_WSTUSR_USDC_ID = 27;
+
+    // --- Action 12 ---
+    uint256 public constant VAULT_EBTC_CBBTC_ID = 95; // T1: eBTC / cbBTC
+    uint256 public constant VAULT_PST_USDC_ID = 167; // T2: PST-USDC (dex 45) / USDC
+    uint256 public constant DEX_PST_USDC_ID = 45;
+
     function execute() public virtual override {
         super.execute();
 
@@ -163,6 +197,18 @@ contract PayloadIGP141 is PayloadIGPPriceHelpers {
 
         // Action 8: Restrict + pause old dex id2 (USDC/USDT) and T3 vaults 35-40 at the Liquidity Layer.
         action8();
+
+        // Action 9: Restrict + pause the hidden USDe vaults 66-73 at the Liquidity Layer.
+        action9();
+
+        // Action 10: Close the dex 5 (USDC-ETH) test market and its T4 vault 62.
+        action10();
+
+        // Action 11: Cap dex 27 (wstUSR-USDC) supply shares.
+        action11();
+
+        // Action 12: Restrict + pause the dust-launch vaults 95 (eBTC/cbBTC) and 167 (PST-USDC / USDC).
+        action12();
     }
 
     function verifyProposal() public view override {}
@@ -431,6 +477,87 @@ contract PayloadIGP141 is PayloadIGPPriceHelpers {
         _restrictAndPauseSupply(getVaultAddress(38), WBTC_ADDRESS);
         _restrictAndPauseSupply(getVaultAddress(39), cbBTC_ADDRESS);
         _restrictAndPauseSupply(getVaultAddress(40), sUSDe_ADDRESS);
+    }
+
+    /// @notice Action 9: Restrict and pause the hidden USDe vaults at the
+    ///         Liquidity Layer (dust positions only).
+    ///         - vaults 66 / 67 / 68 (USDe -> USDC / USDT / GHO): borrow
+    ///           limits to dust (max borrow was $53.5M / $53.3M / $21.6M).
+    ///         - vaults 66-73: supply and borrow paused at the Liquidity
+    ///           Layer. 69-73 (-> USDe) borrow limits are already dust.
+    function action9() internal isActionSkippable(9) {
+        address v66_ = getVaultAddress(VAULT_USDE_USDC_ID);
+        address v67_ = getVaultAddress(VAULT_USDE_USDT_ID);
+        address v68_ = getVaultAddress(VAULT_USDE_GHO_ID);
+
+        setBorrowProtocolLimitsPaused(v66_, USDC_ADDRESS);
+        setBorrowProtocolLimitsPaused(v67_, USDT_ADDRESS);
+        setBorrowProtocolLimitsPaused(v68_, GHO_ADDRESS);
+
+        _pauseVaultAtLiquidity(v66_, USDe_ADDRESS, USDC_ADDRESS);
+        _pauseVaultAtLiquidity(v67_, USDe_ADDRESS, USDT_ADDRESS);
+        _pauseVaultAtLiquidity(v68_, USDe_ADDRESS, GHO_ADDRESS);
+        _pauseVaultAtLiquidity(getVaultAddress(VAULT_ETH_USDE_ID), ETH_ADDRESS, USDe_ADDRESS);
+        _pauseVaultAtLiquidity(getVaultAddress(VAULT_WSTETH_USDE_ID), wstETH_ADDRESS, USDe_ADDRESS);
+        _pauseVaultAtLiquidity(getVaultAddress(VAULT_WEETH_USDE_ID), weETH_ADDRESS, USDe_ADDRESS);
+        _pauseVaultAtLiquidity(getVaultAddress(VAULT_WBTC_USDE_ID), WBTC_ADDRESS, USDe_ADDRESS);
+        _pauseVaultAtLiquidity(getVaultAddress(VAULT_CBBTC_USDE_ID), cbBTC_ADDRESS, USDe_ADDRESS);
+    }
+
+    /// @notice Action 10: Close the dex 5 USDC-ETH test market (Nov 2024,
+    ///         swaps and vault 62 paused since Dec 2024, never launched).
+    ///         - vault 62 (T4) borrow at dex 5 to dust.
+    ///         - dex 5 max supply / borrow shares to 1.
+    ///         dex 5 is already paused at the Liquidity Layer (USDC + ETH,
+    ///         supply + borrow), so no pause call here.
+    function action10() internal isActionSkippable(10) {
+        address dex_ = getDexAddress(DEX_USDC_ETH_ID);
+
+        setBorrowProtocolLimitsPausedDex(dex_, getVaultAddress(VAULT_T4_DEX5_ID));
+
+        IFluidDex(dex_).updateMaxSupplyShares(1);
+        IFluidDex(dex_).updateMaxBorrowShares(1);
+    }
+
+    /// @notice Action 11: Cap the hidden dex 27 (wstUSR-USDC) at 1 max supply
+    ///         share, so no new deposits. Existing LPs can still withdraw.
+    function action11() internal isActionSkippable(11) {
+        IFluidDex(getDexAddress(DEX_WSTUSR_USDC_ID)).updateMaxSupplyShares(1);
+    }
+
+    /// @notice Action 12: Restrict and pause the mainnet dust-launch vaults
+    ///         (1-3 positions each, tens of dollars of collateral).
+    ///         - vault 95 (T1 eBTC / cbBTC): same treatment as the old vaults
+    ///           in Action 7 (supply + borrow to dust, withdrawal limit
+    ///           pinned, paused at the Liquidity Layer).
+    ///         - vault 167 (T2 PST-USDC dex 45 / USDC): USDC borrow at the
+    ///           Liquidity Layer to dust and paused; its smart-col supply at
+    ///           dex 45 to dust and paused. Dex 45 itself is untouched.
+    function action12() internal isActionSkippable(12) {
+        _restrictAndPauseVault(
+            getVaultAddress(VAULT_EBTC_CBBTC_ID),
+            eBTC_ADDRESS,
+            cbBTC_ADDRESS
+        );
+
+        address v167_ = getVaultAddress(VAULT_PST_USDC_ID);
+        _restrictAndPauseBorrow(v167_, USDC_ADDRESS);
+
+        address dex45_ = getDexAddress(DEX_PST_USDC_ID);
+        setSupplyProtocolLimitsPausedDex(dex45_, v167_);
+        IFluidDex(dex45_).pauseUser(v167_, true, false);
+    }
+
+    function _pauseVaultAtLiquidity(
+        address vault_,
+        address supplyToken_,
+        address borrowToken_
+    ) internal {
+        address[] memory supplyTokens_ = new address[](1);
+        supplyTokens_[0] = supplyToken_;
+        address[] memory borrowTokens_ = new address[](1);
+        borrowTokens_[0] = borrowToken_;
+        LIQUIDITY.pauseUser(vault_, supplyTokens_, borrowTokens_);
     }
 
     function _restrictAndPauseSupply(address user_, address token_) internal {
